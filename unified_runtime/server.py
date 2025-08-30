@@ -729,6 +729,7 @@ async def train() -> dict[str, str]:
 @app.post(f"{API_PREFIX}/chat")
 async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
     q = sanitize_input(q)
+    # Budget enforcement for Oracle calls happens in providers; placeholder hook here
     # Engine is optional for routing now; still used for memory
     if engine is not None:
         engine.add_memory("user", q)
