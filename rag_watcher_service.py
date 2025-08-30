@@ -85,7 +85,16 @@ def _quarantine(path: pathlib.Path, reason: str, error: str | None = None, stack
     try:
         path.replace(dst)
     except Exception:
-        pass
+        # Fallback: copy then remove
+        try:
+            import shutil
+            shutil.copy2(str(path), str(dst))
+            try:
+                path.unlink(missing_ok=True)  # type: ignore[arg-type]
+            except Exception:
+                pass
+        except Exception:
+            pass
     rag_quarantine_total.labels(reason=reason).inc()
     # reason file
     why = {
