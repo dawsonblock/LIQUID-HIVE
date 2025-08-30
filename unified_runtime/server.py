@@ -110,6 +110,10 @@ try:
 except Exception:
     AutonomyOrchestrator = None  # type: ignore
 
+# Admin RBAC
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN") or ""
+
+
 autonomy_orchestrator: Optional[AutonomyOrchestrator] = None
 _autonomy_lock: Any = None
 _autonomy_lock_key = "liquid_hive:autonomy_leader"
