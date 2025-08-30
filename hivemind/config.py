@@ -79,6 +79,11 @@ class Settings(BaseSettings):
         # Initialize secrets from secrets manager if available
         if SECRETS_MANAGER_AVAILABLE and secrets_manager:
             self._load_secrets_from_manager()
+        else:
+            # Ensure environment overrides at least are respected
+            self.redis_url = os.environ.get("REDIS_URL", self.redis_url)
+            self.PROMETHEUS_BASE_URL = os.environ.get("PROMETHEUS_BASE_URL", self.PROMETHEUS_BASE_URL)
+            self.vllm_endpoint = os.environ.get("VLLM_ENDPOINT", self.vllm_endpoint)
     
     def _load_secrets_from_manager(self):
         """Load configuration from secrets manager with fallback to env vars."""
@@ -109,6 +114,27 @@ class Settings(BaseSettings):
             self.vllm_api_key = vllm_config['vllm_api_key']
             
         # Neo4j URL
+        # If secrets manager provided values, prefer them over env
+        if secrets_manager:
+            try:
+                sm_redis = secrets_manager.get_redis_url()
+                if sm_redis:
+                    self.redis_url = sm_redis
+                sm_prom = secrets_manager.get_prometheus_url()
+                if sm_prom:
+                    self.PROMETHEUS_BASE_URL = sm_prom
+                vllm_cfg = secrets_manager.get_vllm_config()
+                if vllm_cfg.get('vllm_endpoint'):
+                    self.vllm_endpoint = vllm_cfg['vllm_endpoint']
+                if vllm_cfg.get('vllm_endpoint_small') and not self.vllm_endpoint_small:
+                    self.vllm_endpoint_small = vllm_cfg['vllm_endpoint_small']
+                if vllm_cfg.get('vllm_endpoint_large') and not self.vllm_endpoint_large:
+                    self.vllm_endpoint_large = vllm_cfg['vllm_endpoint_large']
+                if vllm_cfg.get('vllm_api_key') and self.vllm_api_key == 'unused':
+                    self.vllm_api_key = vllm_cfg['vllm_api_key']
+            except Exception:
+                pass
+
         if not self.neo4j_url:
             neo4j_url = secrets_manager.get_secret('neo4j_url') or secrets_manager.get_secret('NEO4J_URL')
             if neo4j_url:

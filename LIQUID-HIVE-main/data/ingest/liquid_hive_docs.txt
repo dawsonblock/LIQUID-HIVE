@@ -1,0 +1,36 @@
+LIQUID-HIVE System Documentation
+
+The LIQUID-HIVE system is an advanced AI architecture featuring:
+
+1. Hierarchical Multi-Agent Architecture
+   - TextRoles for language generation
+   - VisionRoles for multimodal processing
+   - Judge for evaluation and ranking
+
+2. Oracle/Arbiter Refinement Pipeline
+   - DeepSeek Oracle for initial analysis
+   - GPT-4o Arbiter for final refinement
+   - Produces "platinum" training examples
+
+3. Retrieval-Augmented Generation (RAG)
+   - FAISS vector indexing
+   - Sentence transformer embeddings
+   - Automatic document ingestion
+
+4. Cognitive Architecture
+   - Capsule Brain with IIT analysis
+   - Intent modeling and confidence assessment
+   - Self-awareness metrics (Phi calculations)
+
+5. Autonomy and Self-Improvement
+   - Curiosity engine for exploration
+   - Autonomous orchestration system
+   - Continuous learning and adaptation
+
+6. Advanced Features
+   - Real-time monitoring with Prometheus/Grafana
+   - Knowledge graph with Neo4j
+   - Model routing and adapter management
+   - Trust-based autonomous execution
+
+The system implements a "Dreaming State" where it continuously improves its cognitive abilities through hierarchical refinement of its responses and autonomous exploration of new knowledge domains.

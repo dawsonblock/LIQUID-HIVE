@@ -1,0 +1,46 @@
+{
+  "id": null,
+  "title": "Capsule Brain Supreme - Core Metrics",
+  "tags": [
+    "capsule_brain",
+    "agi"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "version": 1,
+  "panels": [
+    {
+      "type": "graph",
+      "title": "API Request Latency (p95)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(cb_request_latency_seconds_bucket[5m])) by (le))"
+        }
+      ],
+      "datasource": "Prometheus",
+      "id": 1
+    },
+    {
+      "type": "graph",
+      "title": "Error Ratio (5xx)",
+      "targets": [
+        {
+          "expr": "sum(rate(cb_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(cb_http_requests_total[5m]))"
+        }
+      ],
+      "datasource": "Prometheus",
+      "id": 2
+    },
+    {
+      "type": "graph",
+      "title": "Token Usage Per Minute",
+      "targets": [
+        {
+          "expr": "sum(rate(cb_tokens_total[1m]))"
+        }
+      ],
+      "datasource": "Prometheus",
+      "id": 3
+    }
+  ]
+}

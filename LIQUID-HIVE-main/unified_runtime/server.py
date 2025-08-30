@@ -115,6 +115,32 @@ _autonomy_id = uuid.uuid4().hex
 websockets: list[WebSocket] = []
 
 
+@app.on_event("startup")
+async def startup() -> None:
+    """Initialize global components on startup."""
+    global settings, retriever, engine, text_roles, judge, strategy_selector, vl_roles
+    global resource_estimator, adapter_manager, tool_auditor, intent_modeler, confidence_modeler
+    
+    # Initialize settings
+    if Settings is not None:
+        settings = Settings()
+    
+    # Initialize retriever
+    if Retriever is not None and settings is not None:
+        retriever = Retriever(settings.rag_index, settings.embed_model)
+    
+    # Initialize engine
+    if CapsuleEngine is not None:
+        engine = CapsuleEngine()
+    
+    # Initialize text roles
+    if TextRoles is not None and settings is not None:
+        text_roles = TextRoles(settings)
+    
+    # Initialize other components as needed
+    # ... (additional component initialization can be added here)
+
+
 def _env_write(key: str, value: str) -> None:
     try:
         env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
@@ -511,13 +537,42 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     websockets.append(websocket)  # type: ignore
     try:
         while True:
-            await asyncio.sleep(10)
+            await asyncio.sleep(10) # Or listen to engine.bus for immediate events
             try:
                 if engine is not None:
                     summary = engine.get_state_summary()
                     await websocket.send_json({"type": "state_update", "payload": summary})
+                    
                     approvals = await _get_approvals()
                     await websocket.send_json({"type": "approvals_update", "payload": approvals})
+
+                    # --- Add custom events here ---
+                    # Example: Get recent self_extension memories
+                    recent_autonomy_events = [m for m in list(engine.memory)[-50:] if m.get("role") in ["self_extension", "approval_feedback"]]
+                    if recent_autonomy_events:
+                        await websocket.send_json({"type": "autonomy_events_recent", "payload": recent_autonomy_events})
+                    
+                    # RAG system status
+                    if retriever is not None:
+                        rag_status = {
+                            "is_ready": retriever.is_ready,
+                            "doc_count": len(retriever.doc_store) if retriever.doc_store else 0,
+                            "embedding_model": retriever.embed_model_id
+                        }
+                        await websocket.send_json({"type": "rag_status", "payload": rag_status})
+                    
+                    # Oracle/Arbiter system status
+                    oracle_status = {
+                        "deepseek_available": bool(os.getenv("DEEPSEEK_API_KEY")),
+                        "openai_available": bool(os.getenv("OPENAI_API_KEY")),
+                        "refinement_enabled": getattr(settings, "ENABLE_ORACLE_REFINEMENT", False) if settings else False
+                    }
+                    await websocket.send_json({"type": "oracle_status", "payload": oracle_status})
+                    
+                    # You could also listen to engine.bus.get_nowait() or a dedicated queue for events
+                    # and immediately broadcast them.
+                    # -----------------------------
+
             except Exception:
                 pass
     except WebSocketDisconnect:
@@ -576,10 +631,10 @@ async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
 
     context_txt = ""
     prompt = q
-    if retriever is not None and format_context is not None:
+    if retriever is not None:
         try:
-            docs = retriever.search(q, k=5)  # type: ignore[operator]
-            context_txt = format_context(docs)  # type: ignore[operator]
+            docs = await retriever.search(q, k=5)  # Ensure await is used here
+            context_txt = retriever.format_context(docs)  # Use retriever's format_context method
             prompt = (
                 f"[CONTEXT]\n{context_txt}\n\n"
                 f"[QUESTION]\n{q}\n\n"

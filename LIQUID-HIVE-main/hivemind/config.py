@@ -129,3 +129,4 @@ class Settings(BaseSettings):
     class Config:
         env_prefix = ""
         env_file = ".env"
+        extra = "allow"  # Allow extra fields from environment

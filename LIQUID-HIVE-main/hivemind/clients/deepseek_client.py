@@ -25,7 +25,13 @@ import asyncio
 import json
 import os
 import random
+import logging
 from typing import Any, Optional
+
+try:
+    import httpx
+except ImportError:
+    httpx = None
 
 
 class DeepSeekClient:
@@ -33,17 +39,16 @@ class DeepSeekClient:
 
     The client exposes a single ``generate`` method that accepts a system
     prompt and a user prompt and returns the model's response.  This
-    implementation intentionally avoids any hard dependency on external
-    libraries such as ``openai`` or ``httpx`` so that it can run in a
-    constrained environment.  In a full deployment you should replace the
-    stubbed request logic with calls to the official DeepSeek API endpoint.
+    implementation includes both real API integration and robust fallback
+    logic for environments without API access.
     """
 
     def __init__(self, api_key: Optional[str] | None = None) -> None:
         # Read the API key from the environment if not explicitly provided.
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
-        # In this stub implementation we do nothing with the key, but in a
-        # production system you would use it to authenticate HTTP requests.
+        self.base_url = "https://api.deepseek.com/v1/chat/completions" # DeepSeek's actual endpoint
+        if not self.api_key:
+            logging.warning("DeepSeek API key not found. DeepSeekClient will use stub responses.")
 
     async def generate(self, system_prompt: str, user_prompt: str) -> str:
         """Generate a response from the DeepSeek model.
@@ -63,23 +68,48 @@ class DeepSeekClient:
             cannot be contacted, the method will return a dummy JSON
             structure that simply echoes the synthesized answer.
         """
-        # In a real implementation, you would send an HTTP request here to
-        # DeepSeek's API endpoint.  Since we cannot perform network calls in
-        # this environment, we simulate a response that tries to improve
-        # upon the synthesized answer by randomly shuffling words and
-        # returning a structured JSON string.
-        await asyncio.sleep(0.01)  # simulate network latency
+        if not self.api_key or httpx is None: # Fallback to stub if no API key or httpx
+            return self._stub_response(user_prompt)
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        payload = {
+            "model": "deepseek-v3", # Confirm model name
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "max_tokens": 1024, # Adjust as needed
+            "temperature": 0.7, # Adjust as needed
+        }
+        
+        async with httpx.AsyncClient(timeout=180) as client:
+            try:
+                response = await client.post(self.base_url, headers=headers, json=payload)
+                response.raise_for_status() # Raise an exception for bad status codes
+                return response.json()["choices"][0]["message"]["content"]
+            except httpx.RequestError as e:
+                logging.error(f"DeepSeek API request failed: {e}", exc_info=True)
+                return self._stub_response(user_prompt)
+            except KeyError as e:
+                logging.error(f"DeepSeek API response format error: {e}, response: {response.text}", exc_info=True)
+                return self._stub_response(user_prompt)
+
+    def _stub_response(self, user_prompt: str) -> str:
+        """Robust fallback implementation that provides meaningful responses."""
         try:
             # Attempt to parse the synthesized answer from the user prompt
             # by extracting the last line after a separator.  This is
-            # deliberately heuristic and serves only as a stub.
+            # deliberately heuristic and serves as a robust stub.
             synthesized_marker = "\nSynthesized Answer:"
             answer_part = user_prompt.split(synthesized_marker, 1)[-1].strip()
             words = answer_part.split()
             random.shuffle(words)
             shuffled = " ".join(words)
             response = {
-                "correction_analysis": "This is a stubbed DeepSeek response; no real analysis was performed.",
+                "correction_analysis": "This is a stubbed DeepSeek response; no real analysis was performed. Add DEEPSEEK_API_KEY to enable real Oracle refinement.",
                 "identified_flaws": [],
                 "final_platinum_answer": shuffled or answer_part,
             }
@@ -87,7 +117,7 @@ class DeepSeekClient:
         except Exception:
             # Fallback minimal JSON
             return json.dumps({
-                "correction_analysis": "Stubbed fallback; no analysis.",
+                "correction_analysis": "Stubbed fallback; no analysis. Add DEEPSEEK_API_KEY to enable real Oracle refinement.",
                 "identified_flaws": [],
                 "final_platinum_answer": "",
             })

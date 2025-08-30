@@ -9,6 +9,9 @@ services:
       - "8000:8000"
     # Run the unified runtime service.
     command: ["python", "-m", "unified_runtime.__main__"]
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO} # Uses .env LOG_LEVEL, defaults to INFO
+      - LOG_JSON=${LOG_JSON:-1}     # Uses .env LOG_JSON, defaults to 1 (JSON)
     depends_on:
       - prometheus
       - redis
@@ -88,9 +91,12 @@ services:
     build: .
     command: ["python", "-m", "rag_watcher_service"]
     environment:
-      - INGEST_WATCH_DIR=/data/ingest
+      - INGEST_WATCH_DIR=/app/data/ingest
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_JSON=${LOG_JSON:-1}
     volumes:
-      - ./data/ingest:/data/ingest
+      - ./data/ingest:/app/data/ingest
+      - ./data/rag_index:/app/rag_index
       - ./hivemind/rag:/app/hivemind/rag
       - ./capsule_brain:/app/capsule_brain
     depends_on:

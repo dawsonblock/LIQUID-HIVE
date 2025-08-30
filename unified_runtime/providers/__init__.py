@@ -1,6 +1,7 @@
+
 """
 Provider System for LIQUID-HIVE DS-Router
-========================================
+
 
 This module implements the provider abstraction for different LLM backends:
 - DeepSeek V3.1 (chat mode)
@@ -23,4 +24,17 @@ __all__ = [
     "DeepSeekThinkingProvider", 
     "DeepSeekR1Provider",
     "QwenCPUProvider"
+
+from .base import GenReq, GenResp
+from .vllm_provider import VLLMProvider
+from .openai_provider import OpenAIProvider
+from .hf_cpu_provider import HFCpuProvider
+
+__all__ = [
+    "GenReq",
+    "GenResp",
+    "VLLMProvider",
+    "OpenAIProvider",
+    "HFCpuProvider",
+        main
 ]

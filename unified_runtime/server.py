@@ -17,6 +17,12 @@ import httpx
 from fastapi import FastAPI, UploadFile, File, Request
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+
+# Unified model router
+from unified_runtime.model_router import ModelRouter
+from unified_runtime.providers.base import GenReq
+
+# Optional metrics and capsule components
 from capsule_brain.security.input_sanitizer import sanitize_input
 
 try:
@@ -121,6 +127,21 @@ _autonomy_lock: Any = None
 _autonomy_lock_key = "liquid_hive:autonomy_leader"
 _autonomy_id = uuid.uuid4().hex
 
+# Router runtime
+router_rt: ModelRouter | None = None
+
+# Admin RBAC token
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN") or ""
+
+# Budget manager (placeholder wiring)
+try:
+    from unified_runtime.budget import BudgetManager, BudgetExceeded
+except Exception:
+    BudgetManager = None  # type: ignore
+    BudgetExceeded = Exception  # type: ignore
+
+bmgr = BudgetManager(getattr(Settings(), "redis_url", None)) if BudgetManager else None
+
 websockets: list[WebSocket] = []
 
 
@@ -128,6 +149,7 @@ websockets: list[WebSocket] = []
 async def startup() -> None:
     """Initialize global components on startup."""
     global settings, retriever, engine, text_roles, judge, strategy_selector, vl_roles
+
     global resource_estimator, adapter_manager, tool_auditor, intent_modeler, confidence_modeler, ds_router
     
     # Initialize settings
@@ -139,18 +161,33 @@ async def startup() -> None:
         router_config = RouterConfig.from_env()
         ds_router = DSRouter(router_config)
         
+
+    global resource_estimator, adapter_manager, tool_auditor, intent_modeler, confidence_modeler
+    global router_rt
+
+    # Initialize settings
+    if Settings is not None:
+        settings = Settings()
+
+        main
     # Initialize retriever
     if Retriever is not None and settings is not None:
         retriever = Retriever(settings.rag_index, settings.embed_model)
-    
+
     # Initialize engine
     if CapsuleEngine is not None:
         engine = CapsuleEngine()
-    
+
     # Initialize text roles
     if TextRoles is not None and settings is not None:
         text_roles = TextRoles(settings)
-    
+
+    # Initialize router
+    try:
+        router_rt = ModelRouter()
+    except Exception:
+        router_rt = None
+
     # Initialize other components as needed
     # ... (additional component initialization can be added here)
 
@@ -272,7 +309,21 @@ async def _start_autonomy_with_leader_election() -> None:
 
 @app.get(f"{API_PREFIX}/healthz")
 async def healthz() -> dict[str, bool]:
-    return {"ok": engine is not None}
+    ok = engine is not None
+    try:
+        if router_rt is not None:
+            ok = ok or (await router_rt.any_live())
+    except Exception:
+        pass
+    return {"ok": bool(ok)}
+
+
+@app.get(f"{API_PREFIX}/providers")
+async def providers_status() -> Dict[str, Any]:
+    if router_rt is None:
+        return {"error": "router_unavailable", "active": None, "providers": {}}
+    status = await router_rt.providers_status()
+    return {"active": router_rt.active_name(), "providers": status}
 
 
 @app.get(f"{API_PREFIX}/vllm/models")
@@ -621,16 +672,15 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 if engine is not None:
                     summary = engine.get_state_summary()
                     await websocket.send_json({"type": "state_update", "payload": summary})
-                    
+
                     approvals = await _get_approvals()
                     await websocket.send_json({"type": "approvals_update", "payload": approvals})
 
                     # --- Add custom events here ---
-                    # Example: Get recent self_extension memories
                     recent_autonomy_events = [m for m in list(engine.memory)[-50:] if m.get("role") in ["self_extension", "approval_feedback"]]
                     if recent_autonomy_events:
                         await websocket.send_json({"type": "autonomy_events_recent", "payload": recent_autonomy_events})
-                    
+
                     # RAG system status
                     if retriever is not None:
                         rag_status = {
@@ -639,7 +689,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                             "embedding_model": retriever.embed_model_id
                         }
                         await websocket.send_json({"type": "rag_status", "payload": rag_status})
-                    
+
                     # Oracle/Arbiter system status
                     oracle_status = {
                         "deepseek_available": bool(os.getenv("DEEPSEEK_API_KEY")),
@@ -647,10 +697,6 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         "refinement_enabled": getattr(settings, "ENABLE_ORACLE_REFINEMENT", False) if settings else False
                     }
                     await websocket.send_json({"type": "oracle_status", "payload": oracle_status})
-                    
-                    # You could also listen to engine.bus.get_nowait() or a dedicated queue for events
-                    # and immediately broadcast them.
-                    # -----------------------------
 
             except Exception:
                 pass
@@ -693,9 +739,10 @@ async def train() -> dict[str, str]:
 @app.post(f"{API_PREFIX}/chat")
 async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
     q = sanitize_input(q)
-    if engine is None:
-        return {"answer": "Engine not ready"}
-    engine.add_memory("user", q)
+    # Budget enforcement for Oracle calls happens in providers; placeholder hook here
+    # Engine is optional for routing now; still used for memory
+    if engine is not None:
+        engine.add_memory("user", q)
 
     planner_hints = None
     reasoning_steps = None
@@ -712,8 +759,8 @@ async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
     prompt = q
     if retriever is not None:
         try:
-            docs = await retriever.search(q, k=5)  # Ensure await is used here
-            context_txt = retriever.format_context(docs)  # Use retriever's format_context method
+            docs = await retriever.search(q, k=5)
+            context_txt = retriever.format_context(docs)
             prompt = (
                 f"[CONTEXT]\n{context_txt}\n\n"
                 f"[QUESTION]\n{q}\n\n"
@@ -721,6 +768,7 @@ async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
             )
         except Exception:
             prompt = q
+
 
     answer = "Placeholder: HiveMind unavailable"
     provider_used = None
@@ -852,7 +900,77 @@ async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
             except Exception as exc:
                 answer = f"An unexpected error occurred during answer generation: {exc}"
 
-    engine.add_memory("assistant", answer)
+    answer = None
+    policy_used = None
+
+    # Model routing via unified router
+    if router_rt is not None:
+        try:
+            req = GenReq(prompt=prompt, system="You are LIQUID-HIVE assistant.")
+            # Canary routing: pass adapter if configured
+            if adapter_manager is not None:
+                try:
+                    chosen = adapter_manager.choose_for_request("implementer")
+                    if chosen:
+                        req.extra["adapter_id"] = chosen
+                        req.extra["adapters_dir"] = getattr(settings, "adapters_dir", "/app/adapters") if settings else "/app/adapters"
+                except Exception:
+                    pass
+            gen = await router_rt.generate(req)
+            answer = gen.text
+            request.scope["provider"] = gen.provider
+            try:
+                if adapter_manager is not None:
+                    adapter_manager.record_result(True, int(gen.meta.get("latency_ms", 0)))
+            except Exception:
+                pass
+        except Exception as exc:
+            answer = f"Routing error: {exc}"
+
+    # Legacy roles path (fallback)
+    roles_obj = text_roles
+    if answer is None and roles_obj is not None and judge is not None and settings is not None:
+        try:
+            policy = policy_used
+            if not policy and decide_policy is not None:
+                policy = decide_policy(task_type="text", prompt=prompt)  # type: ignore[operator]
+            if policy == "committee":
+                tasks: List[str] = await asyncio.gather(*[
+                    roles_obj.implementer(prompt)  # type: ignore[attr-defined]
+                    for _ in range(settings.committee_k)
+                ])
+                rankings = await judge.rank(tasks, prompt=prompt)  # type: ignore[attr-defined]
+                answer = judge.merge(tasks, rankings)  # type: ignore[attr-defined]
+            elif policy == "debate":
+                a1 = await roles_obj.architect(prompt)  # type: ignore[attr-defined]
+                a2 = await roles_obj.implementer(prompt)  # type: ignore[attr-defined]
+                rankings = await judge.rank([a1, a2], prompt=prompt)  # type: ignore[attr-defined]
+                answer = judge.select([a1, a2], rankings)  # type: ignore[attr-defined]
+            elif policy == "clone_dispatch":
+                answer = await roles_obj.implementer(prompt)  # type: ignore[attr-defined]
+            elif policy == "self_extension_prompt":
+                answer = "Self‑extension requests are not supported by this endpoint"
+            elif policy == "cross_modal_synthesis":
+                img_desc = context_txt if context_txt else None
+                try:
+                    answer = await roles_obj.fusion_agent(prompt, image_description=img_desc)  # type: ignore[attr-defined]
+                except Exception as exc:
+                    answer = f"Error generating cross‑modal answer: {exc}"
+            else:
+                answer = await roles_obj.implementer(prompt)  # type: ignore[attr-defined]
+        except httpx.RequestError as exc:
+            answer = f"Error communicating with the model endpoint: {exc}"
+        except (KeyError, IndexError) as exc:
+            answer = f"Error processing model response or policy: {exc}"
+        except Exception as exc:
+            answer = f"An unexpected error occurred during answer generation: {exc}"
+        main
+
+    if answer is None:
+        answer = "Placeholder: HiveMind unavailable"
+
+    if engine is not None:
+        engine.add_memory("assistant", answer)
 
     try:
         if hasattr(text_roles, "c"):
@@ -889,6 +1007,13 @@ async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
         result["planner_hints"] = planner_hints  # type: ignore
     if reasoning_steps:
         result["reasoning_steps"] = reasoning_steps  # type: ignore
+    # Attach provider if available
+    try:
+        prov = request.scope.get("provider")
+        if prov:
+            result["provider"] = prov  # type: ignore[assignment]
+    except Exception:
+        pass
     return result
 
 
@@ -925,6 +1050,81 @@ async def vision(question: str, file: UploadFile = File(...), grounding_required
     if grounding:
         resp["grounding"] = grounding
     return resp
+
+
+# --- Admin + Canary + Budget endpoints ---
+
+def _admin_ok(req: Request) -> bool:
+    tok = req.headers.get("x-admin-token") or req.headers.get("X-Admin-Token")
+    configured = os.environ.get("ADMIN_TOKEN") or ADMIN_TOKEN
+    return bool(configured) and tok == configured
+
+
+@app.post(f"{API_PREFIX}/admin/start_canary")
+async def start_canary(payload: Dict[str, Any], request: Request):
+    if not _admin_ok(request):
+        return {"error": "unauthorized"}
+    global adapter_manager
+    # Lazy init a local adapter manager even if optional import failed in type-checking block
+    try:
+        from hivemind.adapter_deployment_manager import AdapterDeploymentManager as _ADM  # type: ignore
+    except Exception:
+        _ADM = None  # type: ignore
+    if _ADM is None and AdapterDeploymentManager is None:
+        return {"error": "adapter_manager_unavailable"}
+    if adapter_manager is None:
+        cls = _ADM or AdapterDeploymentManager  # type: ignore
+        adapter_manager = cls(getattr(Settings(), "adapters_dir", "/app/adapters"), getattr(Settings(), "redis_url", None))
+    adapter_id = str(payload.get("adapter_id", ""))
+    pct = int(payload.get("traffic_pct", 10))
+    adapter_manager.set_challenger("implementer", adapter_id)
+    adapter_manager.set_traffic_pct(pct)
+    return {"status": "started", "challenger": adapter_id, "traffic_pct": pct}
+
+
+@app.post(f"{API_PREFIX}/admin/stop_canary")
+async def stop_canary(request: Request):
+    if not _admin_ok(request):
+        return {"error": "unauthorized"}
+    global adapter_manager
+    if adapter_manager is None:
+        return {"status": "no_manager"}
+    adapter_manager.set_traffic_pct(0)
+    adapter_manager.set_challenger("implementer", None)
+    return {"status": "stopped"}
+
+
+@app.post(f"{API_PREFIX}/admin/promote")
+async def promote(payload: Dict[str, Any], request: Request):
+    if not _admin_ok(request):
+        return {"error": "unauthorized"}
+    global adapter_manager
+    if adapter_manager is None:
+        return {"error": "no_manager"}
+    adapter_id = str(payload.get("adapter_id", ""))
+    adapter_manager.set_challenger("implementer", adapter_id)
+    new_active = adapter_manager.promote_challenger("implementer")
+    return {"status": "promoted", "active": new_active}
+
+
+@app.get(f"{API_PREFIX}/admin/status")
+async def admin_status(request: Request):
+    if not _admin_ok(request):
+        return {"error": "unauthorized"}
+    global adapter_manager
+    st = adapter_manager.status() if adapter_manager else {"state": {}, "canary_pct": 0}
+    return {"status": "ok", **st}
+
+
+@app.post(f"{API_PREFIX}/admin/reset_budget")
+async def reset_budget(request: Request):
+    if not _admin_ok(request):
+        return {"error": "unauthorized"}
+    if bmgr is None:
+        return {"error": "budget_unavailable"}
+    bmgr.reset()
+    return {"status": "reset"}
+
 
 # Mount GUI SPA
 try:

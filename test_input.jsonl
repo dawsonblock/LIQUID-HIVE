@@ -1,0 +1,2 @@
+{"source_uri": "s3://test-bucket/log1", "license": "MIT", "prompt": "Please contact me at john.doe@example.com or call (555) 123-4567 for medical diagnosis information", "response": "I'll help you with your medical record request. My phone is (555) 987-6543", "oracle_trace": {"engine": "test", "confidence": 0.95}}
+{"source_uri": "s3://test-bucket/log2", "prompt": "What is the capital of France?", "response": "The capital of France is Paris", "oracle_trace": {"engine": "test", "confidence": 0.99}}

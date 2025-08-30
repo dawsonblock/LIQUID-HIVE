@@ -1,0 +1,5 @@
+accuracy_k: 0.6
+pass_at_1: 0.6
+retrieval_f1: 0.6
+safety_violation_rate: 0.2
+latency_p95: 3000
