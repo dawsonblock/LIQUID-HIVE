@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Iterable
 
 EMAIL_RE = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
-PHONE_RE = re.compile(r"\b(?:\+?\d[\s-]?)?(?:\(\d{3}\)|\d{3})[\s-]?\d{3}[\s-]?\d{4}\b")
+PHONE_RE = re.compile(r"(?:\+?\d[\s\-]?)?(?:\(\d{3}\)|\d{3})[\s\-]?\d{3}[\s\-]?\d{4}")
 SSN_RE = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 ADDRESS_RE = re.compile(r"\d+\s+[\w\s]+\b(?:Street|St\.|Avenue|Ave\.|Road|Rd\.|Boulevard|Blvd\.|Lane|Ln\.|Drive|Dr\.)\b", re.IGNORECASE)
 PHI_KEYWORDS = [
