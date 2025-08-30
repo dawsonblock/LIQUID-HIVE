@@ -782,7 +782,8 @@ async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
         except Exception as exc:
             answer = f"An unexpected error occurred during answer generation: {exc}"
 
-    engine.add_memory("assistant", answer)
+    if engine is not None:
+        engine.add_memory("assistant", answer)
 
     try:
         if hasattr(text_roles, "c"):
