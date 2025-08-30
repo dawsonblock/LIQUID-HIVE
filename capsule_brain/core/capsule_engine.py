@@ -1,5 +1,8 @@
-import asyncio, logging, time
+import asyncio
+import logging
+import time
 from typing import Any, Dict, List, Optional
+
 from .alignment_core import AlignmentCore
 from .belief_state_manager import BeliefStateManager
 from .iit_analyzer import IITAnalyzer
@@ -36,7 +39,9 @@ class CapsuleEngine:
         self.memory = self.memory[-5000:]
 
     def add_graph_edge(self, source: str, target: str, relation: str = "related_to") -> None:
-        self.knowledge_graph.add_node(source); self.knowledge_graph.add_node(target)
+        """Add an edge between two nodes in the knowledge graph."""
+        self.knowledge_graph.add_node(source)
+        self.knowledge_graph.add_node(target)
         self.knowledge_graph.add_edge(source, target, relation=relation)
 
     def get_state_summary(self) -> Dict[str, Any]:

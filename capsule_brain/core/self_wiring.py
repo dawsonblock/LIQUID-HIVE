@@ -1,4 +1,9 @@
-import asyncio, logging, time, random
+import asyncio
+import logging
+import random
+import time
+from typing import Dict, List
+
 log = logging.getLogger(__name__)
 
 class SelfWirer:
@@ -6,7 +11,7 @@ class SelfWirer:
     def __init__(self, engine, interval: int = 60):
         self.engine = engine
         self.interval = interval
-        self.performance_history = []
+        self.performance_history: List[Dict[str, float | int]] = []
         self.last_proposal_time = 0.0
 
     async def run(self, bus):
@@ -31,9 +36,17 @@ class SelfWirer:
         if phi < 1.0 and self.engine.knowledge_graph.number_of_nodes() >= 2:
             # add an edge between two random nodes to improve connectivity
             nodes = list(self.engine.knowledge_graph.nodes())
-            a = random.choice(nodes); b = random.choice(nodes)
+            a = random.choice(nodes)
+            b = random.choice(nodes)
             if a != b:
-                edits.append({"type": "graph_edge_add", "source": a, "target": b, "reason": f"Low phi {phi:.2f}"})
+                edits.append(
+                    {
+                        "type": "graph_edge_add",
+                        "source": a,
+                        "target": b,
+                        "reason": f"Low phi {phi:.2f}",
+                    }
+                )
         if len(self.engine.memory) > 1000:
             edits.append({"type": "memory_trim", "target_size": 800, "reason": "Memory approaching capacity"})
         return edits[:3]
@@ -42,5 +55,5 @@ class SelfWirer:
         if not self.performance_history:
             return {}
         tail = self.performance_history[-20:]
-        avg_phi = sum(x["phi"] for x in tail)/len(tail)
+        avg_phi = sum(x["phi"] for x in tail) / len(tail)
         return {"avg_phi": float(avg_phi), "n": len(tail)}
