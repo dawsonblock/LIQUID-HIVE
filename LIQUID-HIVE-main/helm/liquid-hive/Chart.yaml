@@ -1,0 +1,16 @@
+apiVersion: v2
+name: liquid-hive
+description: LIQUID-HIVE production deployment with secrets management
+type: application
+version: 0.1.0
+appVersion: "0.1.5"
+keywords:
+  - ai
+  - ml
+  - secrets-management
+  - vault
+  - aws-secrets-manager
+home: https://github.com/liquid-hive/liquid-hive
+maintainers:
+  - name: LIQUID-HIVE Team
+dependencies: []

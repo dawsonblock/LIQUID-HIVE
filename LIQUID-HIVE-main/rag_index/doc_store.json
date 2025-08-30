@@ -1,0 +1,23 @@
+[
+  {
+    "page_content": "LIQUID-HIVE System Documentation The LIQUID-HIVE system is an advanced AI architecture featuring: 1. Hierarchical Multi-Agent Architecture - TextRoles for language generation - VisionRoles for multimodal processing - Judge for evaluation and ranking 2. OracleArbiter Refinement Pipeline - DeepSeek Oracle for initial analysis - GPT-4o Arbiter for final refinement - Produces platinum training examples 3. Retrieval-Augmented Generation RAG - FAISS vector indexing - Sentence transformer embeddings - Automatic document ingestion 4. Cognitive Architecture - Capsule Brain with IIT analysis - Intent modeling and confidence assessment - Self-awareness metrics Phi calculations 5. Autonomy and Self-Improvement - Curiosity engine for exploration - Autonomous orchestration system - Continuous learning and adaptation 6. Advanced Features - Real-time monitoring with PrometheusGrafana - Knowledge graph with Neo4j - Model routing and adapter management - Trust-based autonomous execution The system implements a Dreaming State where it continuously improves its cognitive abilities through hierarchical refinement of its responses and autonomous exploration of new knowledge domains.",
+    "metadata": {
+      "source": "/app/data/ingest/liquid_hive_docs.txt",
+      "timestamp": 1756529985.999012
+    }
+  },
+  {
+    "page_content": "# AI Basics Machine learning is a field of artificial intelligence AI that focuses on the development of algorithms and statistical models that enable computer systems to improve their performance on a specific task through experience. ## Key Concepts ### Neural Networks Neural networks are computing systems inspired by biological neural networks. They consist of interconnected nodes neurons that process and transmit information. ### Deep Learning Deep learning is a subset of machine learning that uses neural networks with multiple hidden layers. Its particularly effective for tasks like image recognition, natural language processing, and speech recognition. ### Transformer Architecture Transformers are a neural network architecture that has revolutionized natural language processing. They use self-attention mechanisms to process sequential data in parallel, making them highly efficient for training. ## Applications - **Natural Language Processing**: Text generation, translation, sentiment analysis - **Computer Vision**: Image classification, object detection, image generation - **Robotics**: Path planning, manipulation, autonomous navigation - **Healthcare**: Medical diagnosis, drug discovery, personalized treatment ## The Future of AI Artificial intelligence continues to evolve rapidly, with new breakthroughs in areas like: - Large Language Models LLMs - Multimodal AI systems - AI safety and alignment - Autonomous agents and systems",
+    "metadata": {
+      "source": "/app/data/ingest/ai_basics.md",
+      "timestamp": 1756529986.5751128
+    }
+  },
+  {
+    "page_content": "Programming Concepts and Best Practices Object-Oriented Programming OOP OOP is a programming paradigm based on the concept of objects, which contain data attributes and code methods. Key principles include: - Encapsulation: Bundling data and methods together - Inheritance: Creating new classes based on existing ones - Polymorphism: Objects of different types responding to the same interface - Abstraction: Hiding complex implementation details Functional Programming Functional programming treats computation as the evaluation of mathematical functions. Key concepts: - Pure functions: Functions with no side effects - Immutability: Data that doesnt change after creation - Higher-order functions: Functions that operate on other functions - Recursion: Functions calling themselves Design Patterns Common solutions to recurring design problems: - Singleton: Ensures a class has only one instance - Factory: Creates objects without specifying exact classes - Observer: Notifies multiple objects about state changes - Strategy: Encapsulates algorithms and makes them interchangeable Best Practices - Write clean, readable code - Use meaningful variable and function names - Follow the DRY principle Dont Repeat Yourself - Implement proper error handling - Write comprehensive tests - Use version control effectively - Document your code appropriately Asynchronous Programming Modern applications often need to handle multiple tasks concurrently: - Asyncawait patterns for non-blocking operations - Event loops for managing asynchronous operations - Promises and futures for handling delayed results - Thread pools and task queues for parallel processing",
+    "metadata": {
+      "source": "/app/data/ingest/programming_concepts.txt",
+      "timestamp": 1756529987.275858
+    }
+  }
+]

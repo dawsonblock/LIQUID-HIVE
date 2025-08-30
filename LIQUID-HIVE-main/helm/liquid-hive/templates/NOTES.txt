@@ -1,0 +1,61 @@
+1. Get the application URL by running these commands:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "liquid-hive.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch the status of by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "liquid-hive.fullname" . }}'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "liquid-hive.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.service.port }}
+{{- else if contains "ClusterIP" .Values.service.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "liquid-hive.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Release.Namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
+{{- end }}
+
+2. Secrets Management:
+Your LIQUID-HIVE deployment is configured to use: {{ .Values.secrets.provider }}
+
+{{- if eq .Values.secrets.provider "vault" }}
+{{- if .Values.secrets.vault.enabled }}
+  - HashiCorp Vault is deployed in development mode at: {{ .Values.secrets.vault.address }}
+  - Vault Token: {{ .Values.secrets.vault.token }} (DEVELOPMENT ONLY!)
+  - To store secrets in Vault:
+    export VAULT_ADDR={{ .Values.secrets.vault.address }}
+    export VAULT_TOKEN={{ .Values.secrets.vault.token }}
+    vault kv put secret/database/mongo_url value="your-mongo-url"
+{{- else }}
+  - Configure external Vault connection:
+    kubectl create secret generic {{ include "liquid-hive.fullname" . }}-vault-token --from-literal=token=your-vault-token
+{{- end }}
+{{- else if eq .Values.secrets.provider "aws-secrets-manager" }}
+  - AWS Secrets Manager is configured with prefix: {{ .Values.secrets.aws.secretsPrefix }}
+  - Service Account: {{ include "liquid-hive.serviceAccountName" . }}
+  - To store secrets in AWS:
+    aws secretsmanager create-secret --name "{{ .Values.secrets.aws.secretsPrefix }}/database/mongo_url" --secret-string "your-mongo-url"
+{{- else }}
+  - Using environment variables for secrets
+  - Configure secrets via ConfigMap or direct environment variables in deployment
+{{- end }}
+
+3. Health Checks:
+  - Application health: GET /healthz
+  - Secrets manager health: GET /secrets/health
+
+4. API Endpoints:
+  - Chat: POST /api/chat
+  - Vision: POST /api/vision  
+  - Approvals: GET /api/approvals
+  - Adapters: GET /api/adapters
+  - System State: GET /api/state
+  - WebSocket: /ws
+
+Enjoy your LIQUID-HIVE deployment with production-grade secrets management!

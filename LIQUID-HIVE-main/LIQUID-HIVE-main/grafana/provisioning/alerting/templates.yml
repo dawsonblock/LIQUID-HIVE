@@ -1,0 +1,20 @@
+apiVersion: 1
+templates:
+  - orgId: 1
+    name: slack_critical
+    template: |
+      *⚠️ CRITICAL:* {{ .CommonLabels.alertname }}
+      *Status:* {{ .Status }}
+      *Severity:* {{ .CommonLabels.severity }}
+      *Summary:* {{ (index .CommonAnnotations "summary") }}
+      *Desc:* {{ (index .CommonAnnotations "description") }}
+      *StartsAt:* {{ .Alerts.Firing | first | .StartsAt }}
+      *Labels:* {{ .CommonLabels }}
+      *Values:* {{ .CommonLabels.values | default "n/a" }}
+  - orgId: 1
+    name: slack_warning
+    template: |
+      *⚠️ Warning:* {{ .CommonLabels.alertname }} — {{ (index .CommonAnnotations "summary") }}
+      p95={{ with (index .CommonLabels "p95") }}{{ . }}{{ else }}n/a{{ end }}
+      status={{ .Status }}
+      labels={{ .CommonLabels }}

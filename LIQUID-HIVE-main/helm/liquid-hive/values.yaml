@@ -1,0 +1,120 @@
+# LIQUID-HIVE Helm Chart Values
+# Secrets Management Configuration
+
+replicaCount: 2
+
+image:
+  repository: liquid-hive
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: liquid-hive.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Secrets Management Configuration
+secrets:
+  # Provider selection: vault, aws-secrets-manager, environment
+  provider: "environment"  # Default to environment for backward compatibility
+  
+  # HashiCorp Vault configuration (for local development)
+  vault:
+    enabled: false
+    address: "http://vault:8200"
+    # For development only - in production use service accounts
+    token: ""
+    # KV mount path
+    mountPath: "secret"
+    # TLS configuration
+    tls:
+      enabled: false
+      skipVerify: false
+      
+  # AWS Secrets Manager configuration (for production)
+  aws:
+    enabled: false
+    region: "us-east-1"
+    # Prefix for secret names in AWS Secrets Manager
+    secretsPrefix: "liquid-hive"
+    # IAM role for service account (recommended for production)
+    serviceAccount:
+      create: true
+      annotations: {}
+      name: ""
+
+# Application configuration that can be sourced from secrets
+config:
+  # Database connections
+  database:
+    # These will be loaded from secrets manager if configured
+    mongoUrl: ""
+    redisUrl: ""
+    neo4jUrl: ""
+    
+  # AI/ML endpoints
+  ai:
+    vllmEndpoint: ""
+    vllmEndpointSmall: ""
+    vllmEndpointLarge: ""
+    vllmApiKey: ""
+    vlModelId: "LiquidAI/LFM2-VL-1.6B"
+    
+  # Monitoring
+  monitoring:
+    prometheusBaseUrl: ""
+    
+  # Feature flags
+  features:
+    modelRoutingEnabled: false
+    trustedAutonomyEnabled: false
+    autoPromoteEnabled: false
+
+# Resource limits
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+# Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+# Node selection
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: false
+
+# Storage (for adapters, runs, etc.)
+storage:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce

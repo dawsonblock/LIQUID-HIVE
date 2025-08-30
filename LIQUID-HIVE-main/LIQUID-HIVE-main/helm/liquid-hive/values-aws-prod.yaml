@@ -1,0 +1,92 @@
+# AWS Production environment values
+# Uses AWS Secrets Manager with IAM roles
+
+replicaCount: 3
+
+image:
+  repository: your-registry/liquid-hive
+  tag: "v0.1.5"
+
+# Secrets Management - AWS Secrets Manager
+secrets:
+  provider: "aws-secrets-manager"
+  aws:
+    enabled: true
+    region: "us-east-1"
+    secretsPrefix: "liquid-hive/prod"
+    serviceAccount:
+      create: true
+      annotations:
+        eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/liquid-hive-secrets-role"
+      name: "liquid-hive-secrets"
+
+# Production configuration - will be overridden by secrets
+config:
+  database:
+    # These are fallbacks - actual values come from AWS Secrets Manager
+    mongoUrl: ""
+    redisUrl: ""
+    neo4jUrl: ""
+  ai:
+    vllmEndpoint: ""
+    vllmEndpointSmall: ""
+    vllmEndpointLarge: ""
+    vllmApiKey: ""
+  monitoring:
+    prometheusBaseUrl: ""
+  features:
+    modelRoutingEnabled: true
+    trustedAutonomyEnabled: true
+    autoPromoteEnabled: true
+
+# Production ingress
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: api.liquid-hive.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: liquid-hive-tls
+      hosts:
+        - api.liquid-hive.com
+
+# Production resources
+resources:
+  limits:
+    cpu: 4000m
+    memory: 8Gi
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+
+# Autoscaling enabled
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+
+# Production storage
+storage:
+  enabled: true
+  size: 100Gi
+  storageClass: "gp3"
+
+# Node affinity for production workloads
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/instance-type
+          operator: In
+          values:
+          - m5.large
+          - m5.xlarge
+          - m5.2xlarge

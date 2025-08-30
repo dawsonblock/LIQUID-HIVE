@@ -1,0 +1,19 @@
+groups:
+  - name: capsule_brain_rules
+    rules:
+      - alert: HighErrorRate
+        expr: (sum(rate(cb_http_requests_total{status=~"5.."}[5m])) / sum(rate(cb_http_requests_total[5m]))) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate (>5%)"
+          description: "Error ratio is above 5% for 5 minutes."
+      - alert: HighLatencyP95
+        expr: histogram_quantile(0.95, sum(rate(cb_request_latency_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High latency p95 (>2s)"
+          description: "Latency p95 exceeded 2 seconds for the last 5 minutes."

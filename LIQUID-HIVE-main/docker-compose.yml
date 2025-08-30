@@ -1,0 +1,108 @@
+version: "3.8"
+
+services:
+  api:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    # Run the unified runtime service.
+    command: ["python", "-m", "unified_runtime.__main__"]
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO} # Uses .env LOG_LEVEL, defaults to INFO
+      - LOG_JSON=${LOG_JSON:-1}     # Uses .env LOG_JSON, defaults to 1 (JSON)
+    depends_on:
+      - prometheus
+      - redis
+      - neo4j
+      - vllm
+    networks: [fusionnet]
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+    ports:
+      - "9090:9090"
+    networks: [fusionnet]
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_SMTP_ENABLED=true
+      - GF_SMTP_HOST=${GRAFANA_SMTP_HOST}
+      - GF_SMTP_USER=${GRAFANA_SMTP_USER}
+      - GF_SMTP_PASSWORD=${GRAFANA_SMTP_PASSWORD}
+      - GF_SMTP_FROM_ADDRESS=${GRAFANA_SMTP_FROM}
+      - GRAFANA_SLACK_CRITICAL_WEBHOOK=${GRAFANA_SLACK_CRITICAL_WEBHOOK}
+      - GRAFANA_SLACK_CRITICAL_CHANNEL=${GRAFANA_SLACK_CRITICAL_CHANNEL}
+      - GRAFANA_SLACK_WARNING_WEBHOOK=${GRAFANA_SLACK_WARNING_WEBHOOK}
+      - GRAFANA_SLACK_WARNING_CHANNEL=${GRAFANA_SLACK_WARNING_CHANNEL}
+      - GRAFANA_WEBHOOK_URL=${GRAFANA_WEBHOOK_URL}
+      - GRAFANA_ALERT_EMAILS=${GRAFANA_ALERT_EMAILS}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/your/webhook/url}
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/provisioning/alerting:/etc/grafana/provisioning/alerting
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    networks: [fusionnet]
+
+  # Redis serves as the message bus for Capsule‑Brain and caching layer.  A simple
+  # in‑memory instance suffices for local development.
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks: [fusionnet]
+
+  # Graph database for the knowledge graph.  Neo4j is used by default; the
+  # NEO4J_AUTH environment variable should be updated for production.
+  neo4j:
+    image: neo4j:5.15
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-change_this_password}
+    ports:
+      - "7687:7687"
+    networks: [fusionnet]
+
+  # vLLM text model server.  This exposes an OpenAI‑compatible API used by
+  # the agent roles and judge.  In production this should run on a GPU host.
+  vllm:
+    image: vllm/vllm-openai:latest
+    environment:
+      - MODEL_NAME=llama-2-13b-chat-hf
+    ports:
+      - "8001:8000"
+    networks: [fusionnet]
+
+  # RAG watcher daemon.  Monitors the ingest directory and automatically
+  # indexes new documents into the vector store.  Uses the same image as
+  # the API since the script resides in this repository.
+  rag_watcher:
+    build: .
+    command: ["python", "-m", "rag_watcher_service"]
+    environment:
+      - INGEST_WATCH_DIR=/app/data/ingest
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_JSON=${LOG_JSON:-1}
+    volumes:
+      - ./data/ingest:/app/data/ingest
+      - ./data/rag_index:/app/rag_index
+      - ./hivemind/rag:/app/hivemind/rag
+      - ./capsule_brain:/app/capsule_brain
+    depends_on:
+      - api
+    networks: [fusionnet]
+
+networks:
+  fusionnet:
+    driver: bridge
