@@ -1,1 +1,0 @@
-"""Core cognitive architecture components."""
