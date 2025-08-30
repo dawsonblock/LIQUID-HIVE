@@ -422,7 +422,8 @@ bmgr = BudgetManager(getattr(Settings(), "redis_url", None)) if BudgetManager el
 
 def _admin_ok(req: Request) -> bool:
     tok = req.headers.get("x-admin-token") or req.headers.get("X-Admin-Token")
-    return bool(ADMIN_TOKEN) and tok == ADMIN_TOKEN
+    configured = os.environ.get("ADMIN_TOKEN") or ADMIN_TOKEN
+    return bool(configured) and tok == configured
 
 
 @app.post(f"{API_PREFIX}/admin/start_canary")
