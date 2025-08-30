@@ -1,9 +1,10 @@
 # Provenance Report
 
-Total: 1
+Total: 2
 
-Redaction rate: 100.00%
+Redaction rate: 50.00%
 
 Top licenses:
 
-- MIT: 1
+- Apache-2.0: 1
+- BSD-3-Clause: 1
