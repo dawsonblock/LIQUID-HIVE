@@ -1,3 +1,4 @@
+
 import tsParser from './gui/node_modules/@typescript-eslint/parser/dist/index.js';
 
 export default [
@@ -12,4 +13,14 @@ export default [
     },
     rules: {},
   },
+
+export default [
+  {
+    ignores: [
+      'gui/**',
+      'capsule_brain/gui/static/**',
+      'LIQUID-HIVE-main/**',
+      'node_modules/**'
+    ]
+  }
 ];
