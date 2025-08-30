@@ -60,20 +60,7 @@ class QwenCPUProvider(BaseProvider):
                 "trust_remote_code": True
             }
             
-            # Try to use quantization if available
-            try:
-                from transformers import BitsAndBytesConfig
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.float16,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_use_double_quant=True,
-                )
-                model_kwargs["quantization_config"] = quantization_config
-                self.logger.info("Loading Qwen with 4-bit quantization")
-            except ImportError:
-                self.logger.info("BitsAndBytesConfig not available, loading without quantization")
-            
+            # 4-bit quantization is not supported on CPU; always load without quantization
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name, 
                 token=self.hf_token,
