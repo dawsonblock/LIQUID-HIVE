@@ -75,7 +75,7 @@ const ChatPanel: React.FC = () => {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); } }} />
             <IconButton component="label" color={imageFile ? 'secondary' : 'default'}>
               <AttachFileIcon />
-              <input type="file" hidden accept="image/*" onChange={e => setImageFile(e.target.files?.[0] || null)} />
+              <input aria-label="attach file" type="file" hidden accept="image/*" onChange={e => setImageFile(e.target.files?.[0] || null)} />
             </IconButton>
             <IconButton color="primary" onClick={sendText}><SendIcon /></IconButton>
             <Button variant="outlined" onClick={sendVision} disabled={!imageFile}>Send Image</Button>
