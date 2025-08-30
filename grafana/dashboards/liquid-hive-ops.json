@@ -1,0 +1,79 @@
+{
+  "title": "LIQUID-HIVE Ops",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "RAG Ingest Files (OK)",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "expr": "sum(rag_ingest_files_total{status=\"ok\"})",
+        "legendFormat": "ok"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "RAG Quarantine (Failed)",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "expr": "sum(rag_quarantine_total{reason=\"failed\"})",
+        "legendFormat": "failed"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "RAG Ingest Latency p95",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(rag_ingest_latency_seconds_bucket[5m])) by (le))",
+        "legendFormat": "p95"
+      }]
+    },
+    {
+      "type": "piechart",
+      "title": "Provider Mix",
+      "gridPos": {"x": 0, "y": 8, "w": 8, "h": 8},
+      "options": {"legend": {"displayMode": "list"}},
+      "targets": [{
+        "expr": "sum(provider_requests_total) by (provider)",
+        "legendFormat": "{{provider}}"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p50/p95 per provider",
+      "gridPos": {"x": 8, "y": 8, "w": 16, "h": 8},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum(rate(provider_latency_ms_bucket[5m])) by (provider,le))", "legendFormat": "p50 {{provider}}"},
+        {"expr": "histogram_quantile(0.95, sum(rate(provider_latency_ms_bucket[5m])) by (provider,le))", "legendFormat": "p95 {{provider}}"}
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Oracle $/day",
+      "gridPos": {"x": 0, "y": 16, "w": 8, "h": 8},
+      "targets": [{
+        "expr": "sum(oracle_cost_usd_total) by (engine)",
+        "legendFormat": "{{engine}}"
+      }]
+    },
+    {
+      "type": "table",
+      "title": "LoRA challenger vs champion",
+      "gridPos": {"x": 8, "y": 16, "w": 16, "h": 8},
+      "targets": [{
+        "expr": "lora_eval_score"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Ingest Backlog",
+      "gridPos": {"x": 0, "y": 24, "w": 6, "h": 4},
+      "targets": [{
+        "expr": "ingest_backlog_gauge"
+      }]
+    }
+  ]
+}

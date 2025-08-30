@@ -7,6 +7,7 @@ from typing import Any, Dict
 import httpx
 
 from .base import GenReq, GenResp
+from unified_runtime.metrics import provider_requests_total, provider_latency_ms
 
 log = logging.getLogger(__name__)
 
@@ -65,5 +66,7 @@ class OpenAIProvider:
             "raw": data,
             "model": self.model,
         }
+        provider_requests_total.labels(provider=self.name).inc()
+        provider_latency_ms.labels(provider=self.name).observe(dt_ms)
         log.info("generation", extra={"provider": self.name, "latency_ms": dt_ms})
         return GenResp(text=text, provider=self.name, meta=meta)
