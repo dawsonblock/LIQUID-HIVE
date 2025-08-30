@@ -643,9 +643,9 @@ async def train() -> dict[str, str]:
 @app.post(f"{API_PREFIX}/chat")
 async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
     q = sanitize_input(q)
-    if engine is None:
-        return {"answer": "Engine not ready"}
-    engine.add_memory("user", q)
+    # Engine is optional for routing now; still used for memory
+    if engine is not None:
+        engine.add_memory("user", q)
 
     planner_hints = None
     reasoning_steps = None
