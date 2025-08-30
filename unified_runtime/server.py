@@ -556,14 +556,16 @@ async def get_providers_status() -> Dict[str, Any]:
 
 
 @app.post(f"{API_PREFIX}/admin/budget/reset")
-async def reset_budget() -> Dict[str, str]:
+async def reset_budget(request: Request) -> Dict[str, str]:
     """Reset daily budget counters (Admin only)."""
     admin_token = os.environ.get("ADMIN_TOKEN")
     if not admin_token:
         return {"error": "Admin token not configured"}
     
-    # In production, verify admin token from request headers
-    # For now, just reset the budget tracker
+    # Verify admin token from request headers
+    req_token = request.headers.get("x-admin-token") or request.headers.get("authorization")
+    if not req_token or req_token != admin_token:
+        return {"error": "Invalid or missing admin token"}
     if ds_router is not None and hasattr(ds_router, '_budget_tracker'):
         ds_router._budget_tracker.tokens_used = 0
         ds_router._budget_tracker.usd_spent = 0.0
