@@ -259,9 +259,27 @@ async def _start_autonomy_with_leader_election() -> None:
         return
 
 
+router_rt: ModelRouter | None = None
+
+
+@app.on_event("startup")
+async def _init_router():
+    global router_rt
+    try:
+        router_rt = ModelRouter()
+    except Exception:
+        router_rt = None
+
+
 @app.get(f"{API_PREFIX}/healthz")
 async def healthz() -> dict[str, bool]:
-    return {"ok": engine is not None}
+    ok = engine is not None
+    try:
+        if router_rt is not None:
+            ok = ok or (await router_rt.any_live())
+    except Exception:
+        pass
+    return {"ok": bool(ok)}
 
 
 @app.get(f"{API_PREFIX}/vllm/models")
