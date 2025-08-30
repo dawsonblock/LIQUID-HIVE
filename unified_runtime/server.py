@@ -405,6 +405,88 @@ async def promote_adapter(role: str) -> Dict[str, Any]:
         return {"error": str(exc)}
 
 
+# --- Admin + Canary + Budget endpoints ---
+try:
+    from hivemind.adapter_deployment_manager import AdapterDeploymentManager
+except Exception:
+    AdapterDeploymentManager = None  # type: ignore
+
+try:
+    from unified_runtime.budget import BudgetManager, BudgetExceeded
+except Exception:
+    BudgetManager = None  # type: ignore
+    BudgetExceeded = Exception  # type: ignore
+
+bmgr = BudgetManager(getattr(Settings(), "redis_url", None)) if BudgetManager else None
+
+
+def _admin_ok(req: Request) -> bool:
+    tok = req.headers.get("x-admin-token") or req.headers.get("X-Admin-Token")
+    return bool(ADMIN_TOKEN) and tok == ADMIN_TOKEN
+
+
+@app.post(f"{API_PREFIX}/admin/start_canary")
+async def start_canary(payload: Dict[str, Any], request: Request):
+    if not _admin_ok(request):
+        return {"error": "unauthorized"}
+    global adapter_manager
+    if AdapterDeploymentManager is None:
+        return {"error": "adapter_manager_unavailable"}
+    if adapter_manager is None:
+        adapter_manager = AdapterDeploymentManager(getattr(Settings(), "adapters_dir", "/app/adapters"), getattr(Settings(), "redis_url", None))
+    adapter_id = str(payload.get("adapter_id", ""))
+    pct = int(payload.get("traffic_pct", 10))
+    adapter_manager.set_challenger("implementer", adapter_id)
+    adapter_manager.set_traffic_pct(pct)
+    return {"status": "started", "challenger": adapter_id, "traffic_pct": pct}
+
+
+@app.post(f"{API_PREFIX}/admin/stop_canary")
+async def stop_canary(request: Request):
+    if not _admin_ok(request):
+        return {"error": "unauthorized"}
+    global adapter_manager
+    if adapter_manager is None:
+        return {"status": "no_manager"}
+    adapter_manager.set_traffic_pct(0)
+    adapter_manager.set_challenger("implementer", None)
+    return {"status": "stopped"}
+
+
+@app.post(f"{API_PREFIX}/admin/promote")
+async def promote(payload: Dict[str, Any], request: Request):
+    if not _admin_ok(request):
+        return {"error": "unauthorized"}
+    global adapter_manager
+    if adapter_manager is None:
+        return {"error": "no_manager"}
+    adapter_id = str(payload.get("adapter_id", ""))
+    # Set as challenger then promote for simplicity
+    adapter_manager.set_challenger("implementer", adapter_id)
+    new_active = adapter_manager.promote_challenger("implementer")
+    # Future: audit log here
+    return {"status": "promoted", "active": new_active}
+
+
+@app.get(f"{API_PREFIX}/admin/status")
+async def admin_status(request: Request):
+    if not _admin_ok(request):
+        return {"error": "unauthorized"}
+    global adapter_manager
+    st = adapter_manager.status() if adapter_manager else {"state": {}, "canary_pct": 0}
+    return {"status": "ok", **st}
+
+
+@app.post(f"{API_PREFIX}/admin/reset_budget")
+async def reset_budget(request: Request):
+    if not _admin_ok(request):
+        return {"error": "unauthorized"}
+    if bmgr is None:
+        return {"error": "budget_unavailable"}
+    bmgr.reset()
+    return {"status": "reset"}
+
+
 @app.get(f"{API_PREFIX}/config/governor")
 async def get_governor() -> Dict[str, Any]:
     if settings is None:
