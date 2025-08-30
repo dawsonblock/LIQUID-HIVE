@@ -1,0 +1,4 @@
+{"source_uri": "s3://test/edge1", "license": "Apache-2.0", "prompt": "My SSN is 123-45-6789 and I live at 123 Main Street", "response": "Got it", "oracle_trace": {}}
+{"source_uri": "s3://test/edge2", "license": "", "prompt": "This should be skipped", "response": "Yes", "oracle_trace": {}}
+{"source_uri": "s3://test/edge3", "license": "GPL-3.0", "prompt": "", "response": "Empty prompt should be skipped", "oracle_trace": {}}
+{"source_uri": "s3://test/edge4", "license": "BSD-3-Clause", "prompt": "Clean text with no PII", "response": "Clean response", "oracle_trace": {}}
