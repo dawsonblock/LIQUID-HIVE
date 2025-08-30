@@ -733,7 +733,20 @@ async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
     except Exception:
         roles_obj = text_roles
 
-    if roles_obj is not None and judge is not None and settings is not None:
+    answer = None
+    # Primary path: unified router
+    if router_rt is not None:
+        try:
+            req = GenReq(prompt=prompt, system="You are LIQUID-HIVE assistant.")
+            gen = await router_rt.generate(req)
+            answer = gen.text
+            # attach provider info
+            request.scope["provider"] = gen.provider
+        except Exception as exc:
+            answer = f"Routing error: {exc}"
+
+    # Legacy roles path (kept as fallback if router missing)
+    if answer is None and roles_obj is not None and judge is not None and settings is not None:
         try:
             policy = policy_used
             if not policy and decide_policy is not None:
