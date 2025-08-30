@@ -79,6 +79,11 @@ class Settings(BaseSettings):
         # Initialize secrets from secrets manager if available
         if SECRETS_MANAGER_AVAILABLE and secrets_manager:
             self._load_secrets_from_manager()
+        else:
+            # Ensure environment overrides at least are respected
+            self.redis_url = os.environ.get("REDIS_URL", self.redis_url)
+            self.PROMETHEUS_BASE_URL = os.environ.get("PROMETHEUS_BASE_URL", self.PROMETHEUS_BASE_URL)
+            self.vllm_endpoint = os.environ.get("VLLM_ENDPOINT", self.vllm_endpoint)
     
     def _load_secrets_from_manager(self):
         """Load configuration from secrets manager with fallback to env vars."""
