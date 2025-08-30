@@ -282,6 +282,14 @@ async def healthz() -> dict[str, bool]:
     return {"ok": bool(ok)}
 
 
+@app.get(f"{API_PREFIX}/providers")
+async def providers_status() -> Dict[str, Any]:
+    if router_rt is None:
+        return {"error": "router_unavailable", "active": None, "providers": {}}
+    status = await router_rt.providers_status()
+    return {"active": router_rt.active_name(), "providers": status}
+
+
 @app.get(f"{API_PREFIX}/vllm/models")
 async def vllm_models() -> Dict[str, Any]:
     """Helper endpoint to query vLLM service for loaded models."""
