@@ -69,9 +69,11 @@ class ModelRouter:
             healthy = False
             try:
                 healthy = await prov.health()
-            except Exception:
+            except Exception as e:
+                log.warning("Provider %s health check failed on attempt 0: %s", name, e)
                 healthy = False
             if not healthy:
+                log.warning("Provider %s health check failed on attempt 0", name)
                 errors[name] = "unhealthy"
                 continue
             # simple per-provider retry with jitter
@@ -81,6 +83,9 @@ class ModelRouter:
                     self._last_provider = name
                     return resp
                 except Exception as e:
+                    log.error(
+                        "Provider %s attempt %d failed: %s", name, attempt + 1, e
+                    )
                     errors[name] = str(e)
                     await asyncio.sleep(0.1 + random.random() * 0.2)
             # provider exhausted, try next
