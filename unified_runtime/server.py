@@ -836,7 +836,8 @@ async def vision(question: str, file: UploadFile = File(...), grounding_required
             grounding = vl_roles.grounding_validator(question, image_data, answer)  # type: ignore[attr-defined]
     except Exception as exc:
         answer = f"Error processing vision request: {exc}"
-    engine.add_memory("assistant", answer)
+    if engine is not None:
+        engine.add_memory("assistant", answer)
     if request is not None:
         try:
             request.scope["adapter_version"] = "vl"
