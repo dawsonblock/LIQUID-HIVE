@@ -6,6 +6,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from .base import GenReq, GenResp
+from unified_runtime.metrics import provider_requests_total, provider_latency_ms
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +23,6 @@ class HFCpuProvider:
         if self._pipeline is not None:
             return
         from transformers import pipeline
-        # Allow override to avoid heavy downloads in constrained envs
         model_id = self.model_id
         if os.environ.get("ALLOW_SMALL_HF_MODEL", "0") == "1" and not os.environ.get("HF_MODEL"):
             model_id = "sshleifer/tiny-gpt2"
@@ -30,7 +30,6 @@ class HFCpuProvider:
 
     async def health(self) -> bool:
         try:
-            # Do not force model download here; just check transformers available
             import transformers  # noqa: F401
             return True
         except Exception:
@@ -38,7 +37,6 @@ class HFCpuProvider:
 
     async def generate(self, req: GenReq) -> GenResp:
         self._ensure_pipeline()
-        # Compose a simple prompt with system + user
         prompt = (req.system + "\n\n" if req.system else "") + req.prompt
         t0 = time.time()
         out = self._pipeline(
@@ -50,9 +48,10 @@ class HFCpuProvider:
         )
         dt_ms = int((time.time() - t0) * 1000)
         text = out[0]["generated_text"]
-        # Return only the continuation beyond the prompt when possible
         if text.startswith(prompt):
             text = text[len(prompt) :].strip()
         meta: Dict[str, Any] = {"latency_ms": dt_ms, "model": self.model_id}
+        provider_requests_total.labels(provider=self.name).inc()
+        provider_latency_ms.labels(provider=self.name).observe(dt_ms)
         log.info("generation", extra={"provider": self.name, "latency_ms": dt_ms})
         return GenResp(text=text, provider=self.name, meta=meta)

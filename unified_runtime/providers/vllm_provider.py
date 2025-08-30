@@ -7,6 +7,7 @@ from typing import Any, Dict
 import httpx
 
 from .base import GenReq, GenResp
+from unified_runtime.metrics import provider_requests_total, provider_latency_ms
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +47,6 @@ class VLLMProvider:
             "max_tokens": int(req.max_tokens),
             "temperature": float(req.temperature),
         }
-        # Optional LoRA adapter routing
         adapter_id = (req.extra or {}).get("adapter_id") if hasattr(req, "extra") else None
         adapters_dir = (req.extra or {}).get("adapters_dir") if hasattr(req, "extra") else None
         if adapter_id and adapters_dir:
@@ -67,5 +67,7 @@ class VLLMProvider:
             "latency_ms": dt_ms,
             "raw": data,
         }
+        provider_requests_total.labels(provider=self.name).inc()
+        provider_latency_ms.labels(provider=self.name).observe(dt_ms)
         log.info("generation", extra={"provider": self.name, "latency_ms": dt_ms})
         return GenResp(text=text, provider=self.name, meta=meta)
