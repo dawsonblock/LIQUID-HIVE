@@ -837,10 +837,16 @@ async def start_canary(payload: Dict[str, Any], request: Request):
     if not _admin_ok(request):
         return {"error": "unauthorized"}
     global adapter_manager
-    if AdapterDeploymentManager is None:
+    # Lazy init a local adapter manager even if optional import failed in type-checking block
+    try:
+        from hivemind.adapter_deployment_manager import AdapterDeploymentManager as _ADM  # type: ignore
+    except Exception:
+        _ADM = None  # type: ignore
+    if _ADM is None and AdapterDeploymentManager is None:
         return {"error": "adapter_manager_unavailable"}
     if adapter_manager is None:
-        adapter_manager = AdapterDeploymentManager(getattr(Settings(), "adapters_dir", "/app/adapters"), getattr(Settings(), "redis_url", None))
+        cls = _ADM or AdapterDeploymentManager  # type: ignore
+        adapter_manager = cls(getattr(Settings(), "adapters_dir", "/app/adapters"), getattr(Settings(), "redis_url", None))
     adapter_id = str(payload.get("adapter_id", ""))
     pct = int(payload.get("traffic_pct", 10))
     adapter_manager.set_challenger("implementer", adapter_id)
