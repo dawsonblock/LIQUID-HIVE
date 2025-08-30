@@ -812,6 +812,13 @@ async def chat(q: str, request: Request) -> dict[str, str | dict[str, str]]:
         result["planner_hints"] = planner_hints  # type: ignore
     if reasoning_steps:
         result["reasoning_steps"] = reasoning_steps  # type: ignore
+    # Attach provider if available
+    try:
+        prov = request.scope.get("provider")
+        if prov:
+            result["provider"] = prov  # type: ignore[assignment]
+    except Exception:
+        pass
     return result
 
 
