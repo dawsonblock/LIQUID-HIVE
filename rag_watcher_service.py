@@ -8,15 +8,39 @@ import pathlib
 import asyncio # Import asyncio
 import json
 import logging
+import hashlib
 from typing import List, Set, Dict, Any
+from datetime import datetime, timezone
 
 # Import Retriever and Settings from hivemind
 from hivemind.config import Settings
 from hivemind.rag.retriever import Retriever
-# from hivemind.rag.citations import format_context # No longer needed if format_context is part of Retriever
 
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from fastapi import FastAPI
 
 log = logging.getLogger(__name__)
+
+# Metrics
+rag_ingest_files_total = Counter(
+    "rag_ingest_files_total", "Total files processed by RAG watcher", ["status"]
+)
+rag_chunks_total = Counter(
+    "rag_chunks_total", "Total chunks produced by RAG watcher"
+)
+rag_quarantine_total = Counter(
+    "rag_quarantine_total", "Total files moved to quarantine", ["reason"]
+)
+rag_ingest_latency_seconds = Histogram(
+    "rag_ingest_latency_seconds", "RAG ingest latency in seconds"
+)
+
+# App for metrics endpoint
+metrics_app = FastAPI()
+
+@metrics_app.get("/metrics")
+async def metrics_endpoint():
+    return FastAPI.responses.Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Function to safely import setup_logging
 def _setup_logging_if_needed():
@@ -30,34 +54,113 @@ def _setup_logging_if_needed():
 
 INGEST_DIR = os.environ.get("INGEST_WATCH_DIR", "/data/ingest")
 SLEEP_SEC = int(os.environ.get("INGEST_POLL_SECS", "5"))
+RAG_MAX_CONCURRENCY = int(os.environ.get("RAG_MAX_CONCURRENCY", "4"))
+RAG_BACKOFF_MAX_S = float(os.environ.get("RAG_BACKOFF_MAX_S", "20"))
+CHUNK_SIZE = max(200, min(2000, int(os.environ.get("CHUNK_SIZE", "800"))))
+CHUNK_OVERLAP = max(0, min(500, int(os.environ.get("CHUNK_OVERLAP", "160"))))
 
-def list_files(root: str) -> List[str]:
-    p = pathlib.Path(root)
-    if not p.exists():
-        p.mkdir(parents=True, exist_ok=True)
-    files = []
-    for ext in ("*.txt", "*.md", "*.pdf"):
-        files.extend([str(x) for x in p.rglob(ext)])
-    return sorted(files)
+SUPPORTED_TYPES = {".md", ".txt", ".pdf", ".docx", ".html"}
 
-# Keep track of indexed files to avoid re-indexing on restart
-INDEXED_FILES_STATE_PATH = pathlib.Path(INGEST_DIR) / ".indexed_files.json"
+QUARANTINE_DIR = pathlib.Path("data/quarantine")
+QUAR_UNSUPPORTED = QUARANTINE_DIR / "unsupported"
+QUAR_FAILED = QUARANTINE_DIR / "failed"
+INDEX_STATE_PATH = pathlib.Path("data/index_state.jsonl")
 
-def load_indexed_files_state() -> Set[str]:
-    if INDEXED_FILES_STATE_PATH.exists():
-        try:
-            with open(INDEXED_FILES_STATE_PATH, 'r', encoding='utf-8') as f:
-                return set(json.load(f))
-        except Exception as e:
-            log.error(f"Failed to load indexed files state: {e}. Starting fresh.")
-    return set()
+for p in [QUARANTINE_DIR, QUAR_UNSUPPORTED, QUAR_FAILED, pathlib.Path(INGEST_DIR)]:
+    p.mkdir(parents=True, exist_ok=True)
 
-def save_indexed_files_state(indexed_files: Set[str]):
+
+def _sha256_file(path: pathlib.Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _quarantine(path: pathlib.Path, reason: str, error: str | None = None, stack: str | None = None) -> None:
+    dst_dir = QUAR_UNSUPPORTED if reason == "unsupported" else QUAR_FAILED
+    dst = dst_dir / path.name
     try:
-        with open(INDEXED_FILES_STATE_PATH, 'w', encoding='utf-8') as f:
-            json.dump(list(indexed_files), f, indent=2)
-    except Exception as e:
-        log.error(f"Failed to save indexed files state: {e}")
+        path.replace(dst)
+    except Exception:
+        pass
+    rag_quarantine_total.labels(reason=reason).inc()
+    # reason file
+    why = {
+        "error": error or reason,
+        "stack": stack or "",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "sha256": _sha256_file(dst) if dst.exists() else None,
+    }
+    with open(dst.with_suffix(".reason.json"), "w", encoding="utf-8") as f:
+        json.dump(why, f, indent=2)
+
+
+def _load_index_state() -> Dict[str, Dict[str, Any]]:
+    if not INDEX_STATE_PATH.exists():
+        return {}
+    out: Dict[str, Dict[str, Any]] = {}
+    with open(INDEX_STATE_PATH, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+                out[rec["sha256"]] = rec
+            except Exception:
+                continue
+    return out
+
+
+def _append_index_state(rec: Dict[str, Any]) -> None:
+    with open(INDEX_STATE_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec) + "\n")
+
+
+async def _embed_with_retries(retriever: Retriever, files: List[str]) -> List[str]:
+    # Chunking per file with exponential backoff and jitter on embed/write
+    indexed: List[str] = []
+    for f_path in files:
+        path = pathlib.Path(f_path)
+        ext = path.suffix.lower()
+        if ext not in SUPPORTED_TYPES:
+            _quarantine(path, "unsupported")
+            rag_ingest_files_total.labels(status="unsupported").inc()
+            continue
+        start = time.time()
+        try:
+            # Simple chunking by character length
+            text = path.read_text(encoding="utf-8", errors="ignore") if ext in {".md", ".txt", ".html"} else ""
+            chunks: List[str] = []
+            if text:
+                i = 0
+                while i < len(text):
+                    chunks.append(text[i:i+CHUNK_SIZE])
+                    i += CHUNK_SIZE - CHUNK_OVERLAP
+            else:
+                chunks = ["__BINARY__PDF_OR_DOCX__"]
+            rag_chunks_total.inc(len(chunks))
+
+            # Exponential backoff with jitter for embedding write
+            base = 0.5
+            attempts = 5
+            delay = base
+            for k in range(attempts):
+                try:
+                    res = await retriever.add_documents([str(path)])
+                    indexed.extend(res)
+                    rag_ingest_files_total.labels(status="ok").inc()
+                    break
+                except Exception as e:
+                    if k == attempts - 1:
+                        raise
+                    # jitter
+                    await asyncio.sleep(min(delay, RAG_BACKOFF_MAX_S) + (os.urandom(1)[0] / 255.0) * 0.25)
+                    delay = min(delay * 2, RAG_BACKOFF_MAX_S)
+            rag_ingest_latency_seconds.observe(time.time() - start)
+        except Exception as e:
+            _quarantine(path, "failed", error=str(e))
+            rag_ingest_files_total.labels(status="failed").inc()
+    return indexed
 
 
 async def main_async() -> None:
@@ -67,60 +170,57 @@ async def main_async() -> None:
     settings = Settings() # Initialize settings
     retriever = Retriever(settings.rag_index, settings.embed_model) # Initialize Retriever
 
-    # Load previously indexed files
-    known_indexed_files = load_indexed_files_state()
-    log.info(f"Loaded {len(known_indexed_files)} files from previous index state.")
-    
-    # On startup, re-index any files that might be missing from the index (e.g., if index was deleted)
-    # or if they are new since the last run.
-    current_files_on_startup = set(list_files(INGEST_DIR))
-    files_to_index_on_startup = list(current_files_on_startup - known_indexed_files)
-    
-    if files_to_index_on_startup:
-        log.info(f"[rag_watcher] detected {len(files_to_index_on_startup)} files for initial indexing/re-indexing.")
-        indexed_on_startup = await retriever.add_documents(files_to_index_on_startup)
-        for f_path in indexed_on_startup:
-            known_indexed_files.add(f_path)
-        if indexed_on_startup:
-            save_indexed_files_state(known_indexed_files)
-            log.info(f"[rag_watcher] completed initial indexing of {len(indexed_on_startup)} documents.")
+    known = _load_index_state()
+    log.info(f"Loaded {len(known)} index records")
+
+    # Initial sweep
+    files = sorted([str(p) for p in pathlib.Path(INGEST_DIR).rglob("*") if p.is_file()])
+    # Dedup by sha256
+    to_index: List[str] = []
+    for f in files:
+        try:
+            s = _sha256_file(pathlib.Path(f))
+            if s not in known:
+                to_index.append(f)
+        except Exception:
+            continue
+
+    if to_index:
+        idx = await _embed_with_retries(retriever, to_index)
+        for f in idx:
+            rec = {
+                "sha256": _sha256_file(pathlib.Path(f)),
+                "path": f,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            _append_index_state(rec)
+        log.info(f"[rag_watcher] initial indexing complete: {len(idx)} files")
     else:
-        log.info("[rag_watcher] no new files for initial indexing.")
+        log.info("[rag_watcher] no files to index on startup")
 
-
+    # Watch loop
     while True:
         try:
-            current_files = set(list_files(INGEST_DIR))
-            
-            # Files that exist but are not yet in our indexed state
-            files_to_index = list(current_files - known_indexed_files)
-            
-            if files_to_index:
-                log.info(f"[rag_watcher] detected {len(files_to_index)} new/unindexed files, submitting for processing.")
-                indexed_count = 0
-                
-                successfully_indexed = await retriever.add_documents(files_to_index)
-                for f_path in successfully_indexed:
-                    known_indexed_files.add(f_path)
-                    indexed_count += 1
-                
-                if indexed_count > 0:
-                    log.info(f"[rag_watcher] successfully indexed {indexed_count} new documents.")
-                    save_indexed_files_state(known_indexed_files)
-                else:
-                    log.warning("[rag_watcher] no documents were successfully indexed in this cycle.")
-            else:
-                log.debug("[rag_watcher] no new files detected.")
-
+            files = sorted([str(p) for p in pathlib.Path(INGEST_DIR).rglob("*") if p.is_file()])
+            new_files: List[str] = []
+            for f in files:
+                s = _sha256_file(pathlib.Path(f))
+                if s not in known:
+                    new_files.append(f)
+            if new_files:
+                idx = await _embed_with_retries(retriever, new_files)
+                for f in idx:
+                    s = _sha256_file(pathlib.Path(f))
+                    known[s] = {"sha256": s, "path": f, "timestamp": datetime.now(timezone.utc).isoformat()}
+                    _append_index_state(known[s])
+                log.info(f"[rag_watcher] indexed {len(idx)} new files")
+            await asyncio.sleep(SLEEP_SEC)
         except Exception as e:
             log.error(f"[rag_watcher] error: {e}", exc_info=True)
-        
-        await asyncio.sleep(SLEEP_SEC)
+            await asyncio.sleep(SLEEP_SEC)
 
 
 def main() -> None:
-    # This is the synchronous entry point. It needs to run the async part.
-    _setup_logging_if_needed() # Configure logging again for the sync wrapper if needed.
     try:
         asyncio.run(main_async())
     except KeyboardInterrupt:
