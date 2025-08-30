@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 import pathlib
-import asyncio # Import asyncio
+import asyncio
 import json
 import logging
 import hashlib
@@ -16,8 +16,7 @@ from datetime import datetime, timezone
 from hivemind.config import Settings
 from hivemind.rag.retriever import Retriever
 
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from fastapi import FastAPI
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST, start_http_server
 
 log = logging.getLogger(__name__)
 
@@ -35,13 +34,6 @@ rag_ingest_latency_seconds = Histogram(
     "rag_ingest_latency_seconds", "RAG ingest latency in seconds"
 )
 
-# App for metrics endpoint
-metrics_app = FastAPI()
-
-@metrics_app.get("/metrics")
-async def metrics_endpoint():
-    return FastAPI.responses.Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
 # Function to safely import setup_logging
 def _setup_logging_if_needed():
     try:
@@ -58,6 +50,7 @@ RAG_MAX_CONCURRENCY = int(os.environ.get("RAG_MAX_CONCURRENCY", "4"))
 RAG_BACKOFF_MAX_S = float(os.environ.get("RAG_BACKOFF_MAX_S", "20"))
 CHUNK_SIZE = max(200, min(2000, int(os.environ.get("CHUNK_SIZE", "800"))))
 CHUNK_OVERLAP = max(0, min(500, int(os.environ.get("CHUNK_OVERLAP", "160"))))
+RAG_METRICS_PORT = int(os.environ.get("RAG_METRICS_PORT", "8002"))
 
 SUPPORTED_TYPES = {".md", ".txt", ".pdf", ".docx", ".html"}
 
@@ -76,6 +69,14 @@ def _sha256_file(path: pathlib.Path) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _log_json(file: str, sha256: str, status: str, num_chunks: int) -> None:
+    try:
+        payload = {"file": file, "sha256": sha256, "status": status, "num_chunks": num_chunks}
+        log.info(json.dumps(payload))
+    except Exception:
+        pass
 
 
 def _quarantine(path: pathlib.Path, reason: str, error: str | None = None, stack: str | None = None) -> None:
@@ -116,74 +117,95 @@ def _append_index_state(rec: Dict[str, Any]) -> None:
         f.write(json.dumps(rec) + "\n")
 
 
+def filter_new_files(known: Dict[str, Dict[str, Any]], files: List[str]) -> List[str]:
+    out: List[str] = []
+    for f in files:
+        try:
+            s = _sha256_file(pathlib.Path(f))
+            if s not in known:
+                out.append(f)
+        except Exception:
+            continue
+    return out
+
+
 async def _embed_with_retries(retriever: Retriever, files: List[str]) -> List[str]:
-    # Chunking per file with exponential backoff and jitter on embed/write
     indexed: List[str] = []
     for f_path in files:
         path = pathlib.Path(f_path)
         ext = path.suffix.lower()
+        sha = _sha256_file(path)
         if ext not in SUPPORTED_TYPES:
             _quarantine(path, "unsupported")
             rag_ingest_files_total.labels(status="unsupported").inc()
+            _log_json(str(path), sha, "unsupported", 0)
             continue
         start = time.time()
+        # Rough chunk estimate for metrics/logs (actual chunking done in retriever)
+        num_chunks = 1
         try:
-            # Simple chunking by character length
-            text = path.read_text(encoding="utf-8", errors="ignore") if ext in {".md", ".txt", ".html"} else ""
-            chunks: List[str] = []
-            if text:
-                i = 0
-                while i < len(text):
-                    chunks.append(text[i:i+CHUNK_SIZE])
-                    i += CHUNK_SIZE - CHUNK_OVERLAP
-            else:
-                chunks = ["__BINARY__PDF_OR_DOCX__"]
-            rag_chunks_total.inc(len(chunks))
+            if ext in {".md", ".txt", ".html"}:
+                try:
+                    text = path.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    text = ""
+                if text:
+                    i = 0
+                    num_chunks = 0
+                    while i < len(text):
+                        num_chunks += 1
+                        i += max(1, CHUNK_SIZE - CHUNK_OVERLAP)
+            rag_chunks_total.inc(num_chunks)
 
             # Exponential backoff with jitter for embedding write
             base = 0.5
             attempts = 5
             delay = base
+            success = False
             for k in range(attempts):
                 try:
                     res = await retriever.add_documents([str(path)])
-                    indexed.extend(res)
-                    rag_ingest_files_total.labels(status="ok").inc()
-                    break
+                    if res:
+                        indexed.extend(res)
+                        rag_ingest_files_total.labels(status="ok").inc()
+                        success = True
+                        break
+                    else:
+                        raise RuntimeError("indexer_returned_empty")
                 except Exception as e:
                     if k == attempts - 1:
                         raise
-                    # jitter
                     await asyncio.sleep(min(delay, RAG_BACKOFF_MAX_S) + (os.urandom(1)[0] / 255.0) * 0.25)
                     delay = min(delay * 2, RAG_BACKOFF_MAX_S)
             rag_ingest_latency_seconds.observe(time.time() - start)
+            _log_json(str(path), sha, "ok" if success else "failed", num_chunks)
         except Exception as e:
             _quarantine(path, "failed", error=str(e))
             rag_ingest_files_total.labels(status="failed").inc()
+            _log_json(str(path), sha, "failed", num_chunks)
     return indexed
 
 
 async def main_async() -> None:
-    _setup_logging_if_needed() # Configure logging
+    _setup_logging_if_needed()
+    # Start metrics server
+    try:
+        start_http_server(RAG_METRICS_PORT)
+        log.info(f"[rag_watcher] metrics serving on :{RAG_METRICS_PORT}")
+    except Exception as e:
+        log.warning(f"[rag_watcher] could not start metrics server: {e}")
+
     log.info(f"[rag_watcher] starting to watch {INGEST_DIR}")
 
-    settings = Settings() # Initialize settings
-    retriever = Retriever(settings.rag_index, settings.embed_model) # Initialize Retriever
+    settings = Settings()
+    retriever = Retriever(settings.rag_index, settings.embed_model)
 
     known = _load_index_state()
     log.info(f"Loaded {len(known)} index records")
 
     # Initial sweep
     files = sorted([str(p) for p in pathlib.Path(INGEST_DIR).rglob("*") if p.is_file()])
-    # Dedup by sha256
-    to_index: List[str] = []
-    for f in files:
-        try:
-            s = _sha256_file(pathlib.Path(f))
-            if s not in known:
-                to_index.append(f)
-        except Exception:
-            continue
+    to_index = filter_new_files(known, files)
 
     if to_index:
         idx = await _embed_with_retries(retriever, to_index)
@@ -193,6 +215,7 @@ async def main_async() -> None:
                 "path": f,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+            known[rec["sha256"]] = rec
             _append_index_state(rec)
         log.info(f"[rag_watcher] initial indexing complete: {len(idx)} files")
     else:
@@ -202,11 +225,7 @@ async def main_async() -> None:
     while True:
         try:
             files = sorted([str(p) for p in pathlib.Path(INGEST_DIR).rglob("*") if p.is_file()])
-            new_files: List[str] = []
-            for f in files:
-                s = _sha256_file(pathlib.Path(f))
-                if s not in known:
-                    new_files.append(f)
+            new_files = filter_new_files(known, files)
             if new_files:
                 idx = await _embed_with_retries(retriever, new_files)
                 for f in idx:
