@@ -46,8 +46,12 @@ class VLLMProvider:
             "max_tokens": int(req.max_tokens),
             "temperature": float(req.temperature),
         }
-        if req.stop:
-            payload["stop"] = req.stop
+        # Optional LoRA adapter routing
+        adapter_id = (req.extra or {}).get("adapter_id") if hasattr(req, "extra") else None
+        adapters_dir = (req.extra or {}).get("adapters_dir") if hasattr(req, "extra") else None
+        if adapter_id and adapters_dir:
+            adapter_path = os.path.join(adapters_dir, "text", adapter_id)
+            payload["lora"] = {"modules": [{"name": "text-role-adapter", "path": adapter_path}]}
         t0 = time.time()
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             r = await client.post(url, json=payload, headers=headers)

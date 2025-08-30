@@ -19,7 +19,7 @@ class AdapterDeploymentManager:
     Redis keys:
       - liq:canary:adapter -> challenger adapter_id
       - liq:canary:pct -> integer percent (0-100)
-      - liq:canary:stats:success, liq:canary:stats:count for live stats
+      - liq:canary:stats:count, :success, :latency_ms_sum
     """
 
     def __init__(self, adapters_dir: str = "/app/adapters", redis_url: Optional[str] = None) -> None:
@@ -45,7 +45,7 @@ class AdapterDeploymentManager:
 
     def set_challenger(self, role: str, adapter_id: Optional[str]) -> None:
         self.state.setdefault(role, {})["challenger"] = adapter_id
-        if self._r and adapter_id:
+        if self._r and adapter_id is not None:
             try:
                 self._r.set("liq:canary:adapter", adapter_id)
             except Exception:
@@ -68,7 +68,7 @@ class AdapterDeploymentManager:
                 return 0
         return 0
 
-    def choose_for_request(self, role: str) -> str | None:
+    def choose_for_request(self, role: str) -> Optional[str]:
         active = self.get_active(role)
         chall = self.get_challenger(role)
         pct = self.get_traffic_pct()
@@ -76,13 +76,24 @@ class AdapterDeploymentManager:
             chosen = chall
         else:
             chosen = active
-        # record simple stats
+        # record simple count
         if self._r:
             try:
                 self._r.incr("liq:canary:stats:count", 1)
             except Exception:
                 pass
         return chosen
+
+    def record_result(self, success: bool, latency_ms: int | None = None) -> None:
+        if not self._r:
+            return
+        try:
+            if success:
+                self._r.incr("liq:canary:stats:success", 1)
+            if latency_ms is not None:
+                self._r.incrby("liq:canary:stats:latency_ms_sum", max(0, int(latency_ms)))
+        except Exception:
+            pass
 
     def promote_challenger(self, role: str) -> Optional[str]:
         entry = self.state.setdefault(role, {})
@@ -107,7 +118,16 @@ class AdapterDeploymentManager:
         return entry.get("active")
 
     def status(self) -> Dict[str, Any]:
+        stats = {"count": 0, "success": 0, "latency_ms_sum": 0}
+        if self._r:
+            try:
+                stats["count"] = int(self._r.get("liq:canary:stats:count") or 0)
+                stats["success"] = int(self._r.get("liq:canary:stats:success") or 0)
+                stats["latency_ms_sum"] = int(self._r.get("liq:canary:stats:latency_ms_sum") or 0)
+            except Exception:
+                pass
         return {
             "state": self.state,
             "canary_pct": self.get_traffic_pct(),
+            "live_stats": stats,
         }
