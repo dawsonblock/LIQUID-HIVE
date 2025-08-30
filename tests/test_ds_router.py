@@ -9,8 +9,8 @@ from unittest.mock import Mock, AsyncMock, patch
 
 from unified_runtime.model_router import DSRouter, RouterConfig, RoutingDecision
 from unified_runtime.providers.base_provider import GenRequest, GenResponse
-from safety.pre_guard import PreGuard, PreGuardResult
-from safety.post_guard import PostGuard, PostGuardResult
+from unified_runtime.safety.pre_guard import PreGuard, PreGuardResult
+from unified_runtime.safety.post_guard import PostGuard, PostGuardResult
 
 
 class TestDSRouter:
