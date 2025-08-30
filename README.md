@@ -30,16 +30,6 @@ LIQUID-HIVE is a synthetic cognitive entity designed for **hierarchical self-imp
 
 ---
 
-## ⚙️ Key Components
-
--   **unified_runtime/** – The central FastAPI application, dynamic strategy selector, and context bridge.
--   **capsule_brain/** – Provides long‑term memory, knowledge graph, IIT-based self‑analysis, and intent modeling.
--   **hivemind/** – Contains core agent roles, judge logic, RAG retrieval mechanisms, and advanced training/autonomy scripts.
--   **prometheus/** and **grafana/** – The robust metrics collection and visualization stack.
--   **docker-compose.yml** – Orchestrates the unified runtime and all supporting services: Redis (message bus), Neo4j (knowledge graph), and a vLLM server (text model API).
-
----
-
 ## ▶️ Running Locally (Quick Start)
 
 To get LIQUID-HIVE running on your local machine:
@@ -103,45 +93,41 @@ LIQUID-HIVE's "Dreaming State" drives its continuous self-improvement cycle:
 
 You can tune the Oracle/Arbiter refinement pipeline via environment variables in your `.env` file or `docker-compose.yml`:
 
-| Environment Variable          | Default | Description                                                                                                                                                                             |
-| :---------------------------- | :------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ENABLE_ORACLE_REFINEMENT`    | `True`  | Master switch for the refinement pipeline. `False` skips external API calls (faster, cheaper, but lower quality).                                                                       |
+| Environment Variable          | Default | Description |
+| :---------------------------- | :------ | :---------- |
+| `ENABLE_ORACLE_REFINEMENT`    | `True`  | Master switch for the refinement pipeline. `False` skips external API calls (faster, cheaper, but lower quality). |
 | `FORCE_GPT4O_ARBITER`         | `False` | Forces all refinements to use GPT‑4o when `ENABLE_ORACLE_REFINEMENT` is `True` (highest quality, increased cost). Otherwise, prefers DeepSeek‑V3 and falls back to GPT‑4o only when necessary. |
 
 ---
 
-## 🎯 Final Operator Activation Checklist (To Unleash Full Potential)
+## ✅ CPU Fallback Router (vLLM → OpenAI → HF CPU)
 
-Your system is **FULLY ACTIVATED** structurally. These are the final steps to unlock its full cognitive capabilities and integrate external LLM power.
+We added a unified provider interface and a runtime router that ensures chat works even when vLLM is down.
 
-1.  **vLLM Model Activation & Validation:**
-    *   **Action**: Ensure `MODEL_NAME=llama-2-13b-chat-hf` (or your chosen text model) in `docker-compose.yml` is valid and loads successfully. This *requires GPU-enabled hardware*.
-    *   **Validation**: Use `curl http://localhost:8000/api/vllm/models`. Confirm loaded model metadata is returned.
-    *   **Outcome**: `TextRoles` produce real LLM responses, not placeholders.
+Key additions:
+- Providers: `unified_runtime/providers/` with `VLLMProvider`, `OpenAIProvider` (default gpt-4o-mini), and `HFCpuProvider` (Transformers on CPU; defaults to `mistralai/Mistral-7B-Instruct-v0.3`).
+- Router: `unified_runtime/model_router.py` selects provider based on `MODEL_PROVIDER` env or auto-fallback order.
+- Endpoints:
+  - `GET /api/providers` → active provider + status of others
+  - `GET /api/healthz` → green if any provider is live
+- Logging: every generation logs structured line with key `provider`.
 
-2.  **Oracle/Arbiter Clients (DeepSeek/GPT‑4o):**
-    *   **Action**: Provide your DeepSeek and OpenAI API keys. Add them to your `.env` file (or preferred secrets manager):
-        ```
-        DEEPSEEK_API_KEY=sk-your-deepseek-key
-        OPENAI_API_KEY=sk-your-openai-key
-        ```
-    *   **Validation**: Trigger training (`POST /api/train` from GUI/CLI) or allow autonomy to run. Observe `api` service logs for successful external LLM refinement. Confirm "platinum examples" and metadata appear in `datasets/training_metadata.jsonl`.
-    *   **Outcome**: The hierarchical refinement pipeline is fully active, generating high-quality self-improvement data.
+Quickstart (CPU only):
+1. Copy `.env.example` to `.env` and set:
+   ```
+   MODEL_PROVIDER=hf_cpu
+   ALLOW_SMALL_HF_MODEL=1  # uses a tiny model to avoid big downloads in dev
+   ```
+2. Start API (compose or `python -m unified_runtime.__main__`).
+3. Call:
+   ```bash
+   curl -X POST "http://localhost:8000/api/chat" -d "q=hello" -H "content-type: application/x-www-form-urlencoded"
+   ```
 
-3.  **RAG Indexing and Ingestion:**
-    *   **Action**: Place your `.txt`, `.md`, or `.pdf` documents into the `./data/ingest` directory on your host (this maps to `/app/data/ingest` in containers).
-    *   **Validation**: Check `rag_watcher` service logs for successful indexing. Query `/api/chat` with domain-relevant prompts and confirm enriched context in responses.
-    *   **Outcome**: User prompts are grounded with relevant, retrieved knowledge.
-
-4.  **Optional WebSocket Enrichment:**
-    *   **Action**: (No code change needed here unless you want even *more* granularity). The system already broadcasts state, approvals, and recent autonomy events.
-    *   **Validation**: Observe the GUI's "Operator Console" for real-time updates on system status, RAG status, and Oracle/Arbiter pipeline status.
-    *   **Outcome**: A dynamic and insightful operator experience.
-
-5.  **Logging Configuration per Environment:**
-    *   **Action**: Adjust `LOG_LEVEL` (e.g., `INFO` for production, `DEBUG` for development) and `LOG_JSON` (`1` for structured JSON, `0` for plaintext) in your `.env` file or `docker-compose.yml`.
-    *   **Validation**: Check container logs (`docker-compose logs api`) to ensure desired format and verbosity.
-    *   **Outcome**: Actionable, structured logs for monitoring and debugging.
+Troubleshooting:
+- If vLLM is unreachable, router auto-falls back to OpenAI (requires `OPENAI_API_KEY`) or CPU.
+- Check `GET /api/providers` for live statuses.
+- Set `MODEL_PROVIDER=openai` to force OpenAI path.
 
 ---
 
@@ -149,10 +135,10 @@ Your system is **FULLY ACTIVATED** structurally. These are the final steps to un
 
 *   **Dependencies:** `faiss-cpu`, `sentence-transformers`, `pypdf`, and `httpx` successfully integrated.
 *   **Architecture:** Modular design with `unified_runtime`, `capsule_brain`, `hivemind` packages.
-*   **Testing:** Unit tests for input sanitization and error handling. End-to-end tests for core API functionality.
+*   **Testing:** Added `tests/test_router_fallback.py` to validate router fallbacks.
 *   **Deployment:** Docker Compose for local orchestration, Helm charts for Kubernetes production deployments.
-*   **Observability:** Prometheus-scraped `cb_*` metrics, Grafana dashboards, and centralized JSON logging.
-*   **Security:** Input sanitization, secrets management (`hivemind.secrets_manager`), and human-in-the-loop approval queues.
+*   **Observability:** Prometheus-scraped metrics, Grafana dashboards, and structured JSON logging.
+*   **Security:** Input sanitization, secrets management, and human-in-the-loop approval queues.
 
 ---
 
