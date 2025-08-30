@@ -17,6 +17,9 @@ import httpx
 from fastapi import FastAPI, UploadFile, File, Request
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+
+from unified_runtime.model_router import ModelRouter
+from unified_runtime.providers.base import GenReq
 from capsule_brain.security.input_sanitizer import sanitize_input
 
 try:
